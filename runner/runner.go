@@ -249,7 +249,9 @@ func New(options *Options) (*Runner, error) {
 	}
 	runner.hm = hm
 
-	if options.RateLimit > 0 {
+	if options.RateLimitMinute > 0 {
+		runner.ratelimiter = ratelimit.New(options.RateLimitMinute, ratelimit.Per(60*time.Second))
+	} else if options.RateLimit > 0 {
 		runner.ratelimiter = ratelimit.New(options.RateLimit)
 	} else {
 		runner.ratelimiter = ratelimit.NewUnlimited()
@@ -1152,9 +1154,9 @@ retry:
 		builder.WriteString(fmt.Sprintf(" [%s]", cnames[0]))
 	}
 
-	isCDN, err := hp.CdnCheck(ip)
+	isCDN, cdnName, err := hp.CdnCheck(ip)
 	if scanopts.OutputCDN && isCDN && err == nil {
-		builder.WriteString(" [cdn]")
+		builder.WriteString(fmt.Sprintf(" [%s]", cdnName))
 	}
 
 	if scanopts.OutputResponseTime {
@@ -1337,6 +1339,7 @@ retry:
 		A:                ips,
 		CNAMEs:           cnames,
 		CDN:              isCDN,
+		CDNName:          cdnName,
 		ResponseTime:     resp.Duration.String(),
 		Technologies:     technologies,
 		FinalURL:         finalURL,
@@ -1389,6 +1392,7 @@ type Result struct {
 	Pipeline         bool                `json:"pipeline,omitempty" csv:"pipeline"`
 	HTTP2            bool                `json:"http2,omitempty" csv:"http2"`
 	CDN              bool                `json:"cdn,omitempty" csv:"cdn"`
+	CDNName          string              `json:"cdn-name,omitempty" csv:"cdn-name"`
 	ResponseTime     string              `json:"response-time,omitempty" csv:"response-time"`
 	Technologies     []string            `json:"technologies,omitempty" csv:"technologies"`
 	Chain            []httpx.ChainItem   `json:"chain,omitempty" csv:"chain"`
@@ -1487,7 +1491,7 @@ func (r *Runner) skipCDNPort(host string, port string) bool {
 	// pick the first ip as target
 	hostIP := dnsData.A[0]
 
-	isCdnIP, err := r.hp.CdnCheck(hostIP)
+	isCdnIP, _, err := r.hp.CdnCheck(hostIP)
 	if err != nil {
 		return false
 	}
